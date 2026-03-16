@@ -28,17 +28,25 @@ module JOSE
                   header_overrides : Hash(String, JSON::Any)? = nil) : SignedBinary
       alg = header_overrides.try(&.["alg"]?.try(&.as_s)) || default_alg(jwk)
 
-      header_map = {"alg" => alg}
+      header = {"alg" => JSON::Any.new(alg)} of String => JSON::Any
       kid = jwk["kid"]?.try(&.as_s)
-      header_map["kid"] = kid if kid
-      header_overrides.try &.each { |k, v| header_map[k] = v.as_s rescue v.to_s }
+      header["kid"] = JSON::Any.new(kid) if kid
+      header_overrides.try &.each { |k, v| header[k] = v }
 
-      header_b64 = Base64Url.encode(header_map.to_json.to_slice)
-      payload_b64 = Base64Url.encode(plain_text.to_slice)
-      signing_input = "#{header_b64}.#{payload_b64}"
+      b64 = header_overrides.try { |h| h["b64"]? }.try(&.raw) != false
 
+      unless b64
+        raise ArgumentError.new("Unencoded JWS payload must not contain '.' (RFC 7797 §7)") if plain_text.includes?('.')
+        existing_crit = header["crit"]?.try(&.as_a.map(&.as_s)) || [] of String
+        unless existing_crit.includes?("b64")
+          header["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |s| JSON::Any.new(s) })
+        end
+      end
+
+      header_b64 = Base64Url.encode(header.to_json.to_slice)
+      payload_part = b64 ? Base64Url.encode(plain_text.to_slice) : plain_text
+      signing_input = "#{header_b64}.#{payload_part}"
       sig = compute_signature(jwk, alg, signing_input.to_slice)
-
       SignedBinary.new("#{signing_input}.#{Base64Url.encode(sig)}")
     end
 
@@ -63,15 +71,16 @@ module JOSE
       header = JSON.parse(String.new(Base64Url.decode(parts[0]))).as_h
       alg = header["alg"].as_s
       sig = Base64Url.decode(parts[2])
+      b64 = header["b64"]?.try(&.as_bool) != false
 
       if detached
         raise ArgumentError.new("Compact JWS has non-empty payload segment; cannot use detached:") unless parts[1].empty?
-        payload_b64 = Base64Url.encode(detached.to_slice)
-        signing_input = "#{parts[0]}.#{payload_b64}"
+        payload_part = b64 ? Base64Url.encode(detached.to_slice) : detached
+        signing_input = "#{parts[0]}.#{payload_part}"
         payload = detached
       else
         signing_input = "#{parts[0]}.#{parts[1]}"
-        payload = String.new(Base64Url.decode(parts[1]))
+        payload = b64 ? String.new(Base64Url.decode(parts[1])) : parts[1]
       end
 
       valid = verify_signature(jwk, alg, signing_input.to_slice, sig)
@@ -91,11 +100,11 @@ module JOSE
     # first, then from the unprotected header.
     def self.verify_json(jwk : JWK, json : String) : {Bool, String}
       parsed = JSON.parse(json).as_h
-      payload_b64 = parsed["payload"].as_s
-      payload = String.new(Base64Url.decode(payload_b64))
+      payload_raw = parsed["payload"].as_s
 
       entries = parsed["signatures"]?.try { |sigs| sigs.as_a.map(&.as_h) } || [parsed]
 
+      last_b64 = true
       entries.each do |entry|
         protected_b64 = entry["protected"]?.try(&.as_s) || ""
         unprotected_h = entry["header"]?.try(&.as_h)
@@ -106,7 +115,10 @@ module JOSE
         alg = (protected_h["alg"]? || unprotected_h.try(&.["alg"]?)).try(&.as_s)
         next unless alg
 
-        signing_input = "#{protected_b64}.#{payload_b64}"
+        b64 = protected_h["b64"]?.try(&.as_bool) != false
+        last_b64 = b64
+        payload = b64 ? String.new(Base64Url.decode(payload_raw)) : payload_raw
+        signing_input = "#{protected_b64}.#{payload_raw}"
         valid = begin
           verify_signature(jwk, alg, signing_input.to_slice, sig)
         rescue
@@ -115,6 +127,7 @@ module JOSE
         return {true, payload} if valid
       end
 
+      payload = last_b64 ? String.new(Base64Url.decode(payload_raw)) : payload_raw
       {false, payload}
     end
 
@@ -143,13 +156,22 @@ module JOSE
         prot["kid"] = JSON::Any.new(kid)
       end
 
-      payload_b64 = Base64Url.encode(plain_text.to_slice)
+      b64 = protected_overrides.try { |h| h["b64"]? }.try(&.raw) != false
+
+      unless b64
+        existing_crit = prot["crit"]?.try(&.as_a.map(&.as_s)) || [] of String
+        unless existing_crit.includes?("b64")
+          prot["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |s| JSON::Any.new(s) })
+        end
+      end
+
+      payload_part = b64 ? Base64Url.encode(plain_text.to_slice) : plain_text
       protected_b64 = prot.empty? ? "" : Base64Url.encode(prot.to_json.to_slice)
-      signing_input = "#{protected_b64}.#{payload_b64}"
+      signing_input = "#{protected_b64}.#{payload_part}"
       sig_b64 = Base64Url.encode(compute_signature(jwk, alg, signing_input.to_slice))
 
       result = {} of String => JSON::Any
-      result["payload"] = JSON::Any.new(payload_b64)
+      result["payload"] = JSON::Any.new(payload_part)
       result["protected"] = JSON::Any.new(protected_b64) unless protected_b64.empty?
       unprotected.try { |hdr| result["header"] = JSON::Any.new(hdr) }
       result["signature"] = JSON::Any.new(sig_b64)
@@ -165,7 +187,9 @@ module JOSE
 
     # Returns the decoded payload string from *compact* without verifying.
     def self.peek_payload(compact : String) : String
-      String.new(Base64Url.decode(compact.split('.')[1]))
+      p = compact.split('.')
+      header = JSON.parse(String.new(Base64Url.decode(p[0]))).as_h
+      header["b64"]?.try(&.as_bool) != false ? String.new(Base64Url.decode(p[1])) : p[1]
     end
 
     # Returns the raw signature bytes from *compact* without verifying.

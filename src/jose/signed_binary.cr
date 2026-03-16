@@ -15,7 +15,8 @@ module JOSE
 
     # Returns the decoded payload string without verifying the signature.
     def peek_payload : String
-      String.new(Base64Url.decode(parts[1]))
+      header = JSON.parse(String.new(Base64Url.decode(parts[0]))).as_h
+      header["b64"]?.try(&.as_bool) != false ? String.new(Base64Url.decode(parts[1])) : parts[1]
     end
 
     # Returns the raw signature bytes without verifying.

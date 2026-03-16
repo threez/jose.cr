@@ -205,6 +205,85 @@ describe JOSE::JWS do
     end
   end
 
+  describe "RFC 7797 (b64=false Unencoded Payload)" do
+    it "compact round-trip with b64=false" do
+      jwk = generate_oct_jwk(32)
+      plain_text = "hello unencoded"
+      overrides = {"b64" => JSON::Any.new(false)}
+      signed = JOSE::JWS.sign(jwk, plain_text, overrides)
+      valid, payload = JOSE::JWS.verify(jwk, signed)
+      valid.should be_true
+      payload.should eq(plain_text)
+    end
+
+    it "auto-injects crit=[b64] when b64=false" do
+      jwk = generate_oct_jwk(32)
+      overrides = {"b64" => JSON::Any.new(false)}
+      signed = JOSE::JWS.sign(jwk, "test", overrides)
+      crit = signed.peek_protected["crit"].as_a.map(&.as_s)
+      crit.should contain("b64")
+    end
+
+    it "peek_payload returns raw unencoded payload when b64=false" do
+      jwk = generate_oct_jwk(32)
+      plain_text = "raw payload"
+      overrides = {"b64" => JSON::Any.new(false)}
+      signed = JOSE::JWS.sign(jwk, plain_text, overrides)
+      signed.peek_payload.should eq(plain_text)
+    end
+
+    it "verify rejects tampered payload with b64=false" do
+      jwk = generate_oct_jwk(32)
+      overrides = {"b64" => JSON::Any.new(false)}
+      signed = JOSE::JWS.sign(jwk, "original", overrides)
+      parts = signed.compact.split(".")
+      tampered = "#{parts[0]}.tampered.#{parts[2]}"
+      valid, _ = JOSE::JWS.verify(jwk, tampered)
+      valid.should be_false
+    end
+
+    it "raises ArgumentError when payload contains '.' with b64=false" do
+      jwk = generate_oct_jwk(32)
+      overrides = {"b64" => JSON::Any.new(false)}
+      expect_raises(ArgumentError, /must not contain/) do
+        JOSE::JWS.sign(jwk, "a.b", overrides)
+      end
+    end
+
+    it "JSON serialization round-trip with b64=false" do
+      jwk = generate_oct_jwk(32)
+      plain_text = "$.02"
+      overrides = {"alg" => JSON::Any.new("HS256"), "b64" => JSON::Any.new(false)}
+      token = JOSE::JWS.sign_json(jwk, plain_text, protected_overrides: overrides)
+      valid, payload = JOSE::JWS.verify_json(jwk, token)
+      valid.should be_true
+      payload.should eq(plain_text)
+    end
+
+    it "does not duplicate b64 in crit when caller already provides it" do
+      jwk = generate_oct_jwk(32)
+      overrides = {
+        "b64"  => JSON::Any.new(false),
+        "crit" => JSON::Any.new([JSON::Any.new("custom"), JSON::Any.new("b64")] of JSON::Any),
+      }
+      signed = JOSE::JWS.sign(jwk, "test", overrides)
+      crit = signed.peek_protected["crit"].as_a.map(&.as_s)
+      crit.count("b64").should eq(1)
+      crit.should contain("custom")
+    end
+
+    it "verifies RFC 7797 Appendix B vector (HS256, payload=$.02)" do
+      jwk = JOSE::JWK.from_binary(%q({"kty":"oct","k":"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"}))
+      # Protected: {"alg":"HS256","b64":false,"crit":["b64"]}
+      # Payload: $.02 (raw, b64=false)
+      # Signing input: eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19.$.02
+      token = %q({"payload":"$.02","protected":"eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19","header":{"alg":"HS256"},"signature":"A5dxf2s96_n5FLueVuW1Z_vh161FwXZC4YLPff6dmDY"})
+      valid, payload = JOSE::JWS.verify_json(jwk, token)
+      valid.should be_true
+      payload.should eq("$.02")
+    end
+  end
+
   describe "RFC 7515 Appendix A.1" do
     it "verifies HS256 token with fixed vector" do
       jwk = JOSE::JWK.from_binary(%q({"kty":"oct","k":"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"}))
