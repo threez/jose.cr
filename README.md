@@ -1,6 +1,7 @@
 # jose
 
-[![CI](https://github.com/threez/jose/actions/workflows/ci.yml/badge.svg)](https://github.com/threez/jose/actions/workflows/ci.yml)
+[![CI](https://github.com/threez/jose.cr/actions/workflows/ci.yml/badge.svg)](https://github.com/threez/jose.cr/actions/workflows/ci.yml)
+[![https://threez.github.io/jose.cr/](https://badgen.net/badge/api/documentation/green)](https://threez.github.io/jose.cr/)
 
 JSON Object Signing and Encryption (JOSE) for Crystal — JWS (signing), JWE
 (encryption), JWT, and JWKS (key sets), in both compact and JSON serialization,
