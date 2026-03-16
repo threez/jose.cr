@@ -33,13 +33,13 @@ module JOSE
       header["kid"] = JSON::Any.new(kid) if kid
       header_overrides.try &.each { |k, v| header[k] = v }
 
-      b64 = header_overrides.try { |h| h["b64"]? }.try(&.raw) != false
+      b64 = header_overrides.try { |hdrs| hdrs["b64"]? }.try(&.raw) != false
 
       unless b64
         raise ArgumentError.new("Unencoded JWS payload must not contain '.' (RFC 7797 §7)") if plain_text.includes?('.')
         existing_crit = header["crit"]?.try(&.as_a.map(&.as_s)) || [] of String
         unless existing_crit.includes?("b64")
-          header["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |s| JSON::Any.new(s) })
+          header["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |str| JSON::Any.new(str) })
         end
       end
 
@@ -156,12 +156,12 @@ module JOSE
         prot["kid"] = JSON::Any.new(kid)
       end
 
-      b64 = protected_overrides.try { |h| h["b64"]? }.try(&.raw) != false
+      b64 = protected_overrides.try { |hdrs| hdrs["b64"]? }.try(&.raw) != false
 
       unless b64
         existing_crit = prot["crit"]?.try(&.as_a.map(&.as_s)) || [] of String
         unless existing_crit.includes?("b64")
-          prot["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |s| JSON::Any.new(s) })
+          prot["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |str| JSON::Any.new(str) })
         end
       end
 
