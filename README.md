@@ -14,6 +14,7 @@ Implements the following RFCs:
 - [RFC 7518](https://www.rfc-editor.org/rfc/rfc7518) — JSON Web Algorithms (JWA)
 - [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519) — JSON Web Token (JWT)
 - [RFC 7520](https://www.rfc-editor.org/rfc/rfc7520) — JOSE Cookbook (test vectors, fully covered)
+- [RFC 7797](https://www.rfc-editor.org/rfc/rfc7797) — JWS Unencoded Payload Option
 
 Heavily inspired by [ruby-jose](https://github.com/potatosalad/ruby-jose) and
 [erlang-jose](https://hexdocs.pm/jose/).
@@ -171,6 +172,43 @@ plaintext = JOSE::JWE.json_decrypt(jwk, json_token)
 # => "hello json"
 ```
 
+### JWS Unencoded Payload (RFC 7797)
+
+When `b64: false` is set in the protected header the payload is transmitted
+without base64url-encoding. This is useful for webhook or streaming scenarios
+where the raw payload text is signed inline. The `crit: ["b64"]` entry is
+injected automatically.
+
+> **Compact serialization**: the raw payload must not contain `.` — use JSON
+> serialization instead (e.g. for payloads like `$.02`).
+
+```crystal
+require "jose"
+
+jwk = JOSE::JWK.generate_key_oct
+
+# ── Compact serialization (payload must not contain '.') ──────────────────────
+overrides = {"b64" => JSON::Any.new(false)}
+signed = JOSE::JWS.sign(jwk, "hello unencoded", overrides)
+
+# The payload segment is the literal string, not base64url.
+signed.peek_protected["b64"].as_bool   # => false
+signed.peek_protected["crit"].as_a     # => ["b64"]
+signed.peek_payload                    # => "hello unencoded"
+
+valid, payload = JOSE::JWS.verify(jwk, signed)
+valid   # => true
+payload # => "hello unencoded"
+
+# ── JSON serialization (supports any payload, including '.') ──────────────────
+overrides = {"alg" => JSON::Any.new("HS256"), "b64" => JSON::Any.new(false)}
+json_token = JOSE::JWS.sign_json(jwk, "$.02", protected_overrides: overrides)
+
+valid, payload = JOSE::JWS.verify_json(jwk, json_token)
+valid   # => true
+payload # => "$.02"
+```
+
 ### Detached JWS (RFC 7515 §7)
 
 ```crystal
@@ -232,7 +270,6 @@ crystal tool format --check src/ spec/   # format check
 
 ## TODO
 
-- [RFC 7797](https://www.rfc-editor.org/rfc/rfc7797) — JSON Web Signature (JWS) Unencoded Payload Option
 - [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725) — JSON Web Token Best Current Practices
 
 ## Contributors
