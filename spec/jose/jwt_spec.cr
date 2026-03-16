@@ -467,4 +467,128 @@ describe JOSE::JWT do
       my_jwt.exp.should eq(Time.unix(9999999999_i64))
     end
   end
+
+  # ── RFC 8725 (verify_strict claim validation) ─────────────────────────────
+
+  describe "RFC 8725 (verify_strict claim validation)" do
+    it "rejects an expired token (exp in the past)" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.exp = Time.utc - 1.second
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed)
+      valid.should be_false
+    end
+
+    it "rejects a token with nbf in the future" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.nbf = Time.utc + 1.hour
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed)
+      valid.should be_false
+    end
+
+    it "skips time checks when validate_claims: false" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.exp = Time.utc - 1.second
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        validate_claims: false)
+      valid.should be_true
+    end
+
+    it "accepts matching iss" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.iss = "example.com"
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        iss: "example.com")
+      valid.should be_true
+    end
+
+    it "rejects mismatched iss" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.iss = "other.com"
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        iss: "example.com")
+      valid.should be_false
+    end
+
+    it "rejects missing iss when iss check requested" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        iss: "example.com")
+      valid.should be_false
+    end
+
+    it "accepts aud when token aud matches single expected string" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.aud = "api"
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        aud: "api")
+      valid.should be_true
+    end
+
+    it "accepts aud when token aud array contains expected value" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.aud = ["api", "admin"]
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        aud: "admin")
+      valid.should be_true
+    end
+
+    it "rejects mismatched aud" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.aud = "other"
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        aud: "api")
+      valid.should be_false
+    end
+
+    it "accepts typ: JWT (set automatically by JWT.sign)" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        typ: "JWT")
+      valid.should be_true
+    end
+
+    it "rejects typ mismatch" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        typ: "at+JWT")
+      valid.should be_false
+    end
+
+    it "passes all validations combined for a valid token" do
+      jwk = generate_oct_jwk(32)
+      jwt = JOSE::JWT.new
+      jwt.iss = "example.com"
+      jwt.aud = "api"
+      jwt.exp = Time.utc + 1.hour
+      jwt.nbf = Time.utc - 1.second
+      signed = JOSE::JWT.sign(jwk, jwt)
+      valid, _decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+        iss: "example.com",
+        aud: "api",
+        typ: "JWT")
+      valid.should be_true
+    end
+  end
 end

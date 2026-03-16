@@ -15,6 +15,7 @@ Implements the following RFCs:
 - [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519) — JSON Web Token (JWT)
 - [RFC 7520](https://www.rfc-editor.org/rfc/rfc7520) — JOSE Cookbook (test vectors, fully covered)
 - [RFC 7797](https://www.rfc-editor.org/rfc/rfc7797) — JWS Unencoded Payload Option
+- [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725) — JSON Web Token Best Current Practices
 
 Heavily inspired by [ruby-jose](https://github.com/potatosalad/ruby-jose) and
 [erlang-jose](https://hexdocs.pm/jose/).
@@ -89,8 +90,12 @@ jwt = JOSE::JWT.from_map({
 # Sign — the "typ": "JWT" header is added automatically.
 signed = JOSE::JWT.sign(jwk, jwt)
 
-# Verify and enforce the allowed algorithm list.
-valid, decoded, header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed)
+# Verify: enforce algorithm allowlist, issuer, audience, and expiry (RFC 8725).
+jwt.exp = Time.utc + 1.hour
+signed = JOSE::JWT.sign(jwk, jwt)
+valid, decoded, header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
+  iss: "example.com",
+  aud: "api")
 valid               # => true
 decoded["sub"].as_s # => "alice"
 header["typ"].as_s  # => "JWT"
@@ -267,10 +272,6 @@ crystal tool format --check src/ spec/   # format check
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
 5. Create a new Pull Request
-
-## TODO
-
-- [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725) — JSON Web Token Best Current Practices
 
 ## Contributors
 

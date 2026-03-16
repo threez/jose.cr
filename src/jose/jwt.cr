@@ -251,17 +251,53 @@ module JOSE
       {valid, jwt, header}
     end
 
-    # Like `verify` but also checks that the token's `"alg"` header is
-    # included in *allowed_algs*.
+    # Like `verify` but enforces RFC 8725 best-current-practices on top of the
+    # cryptographic signature check.
     #
-    # Returns `{false, jwt, header}` when the algorithm is not in the
-    # whitelist, even if the cryptographic signature is otherwise valid.
-    # This guard protects against algorithm-confusion attacks.
+    # **Always checked:**
+    # - `"alg"` header must appear in *allowed_algs* (algorithm-confusion guard).
+    #
+    # **Keyword parameters (all optional, off by default except `validate_claims`):**
+    # - *iss* — expected issuer; token `iss` claim must match exactly (§3.8).
+    # - *aud* — expected audience; token must include at least one of the given
+    #   values (§3.9). Accepts a single string or an array.
+    # - *typ* — expected `"typ"` header value, e.g. `"JWT"` or `"at+JWT"` (§3.11).
+    # - *validate_claims* — when `true` (default) the token must not be expired
+    #   and its `nbf` must have been reached (§3.3). Pass `false` to skip.
+    #
+    # Returns `{false, jwt, header}` whenever any check fails, even if the
+    # cryptographic signature itself is valid.
     def self.verify_strict(jwk : JWK, allowed_algs : Array(String),
-                           signed : String | SignedBinary) : {Bool, JWT, Hash(String, JSON::Any)}
+                           signed : String | SignedBinary, *,
+                           iss : String? = nil,
+                           aud : String | Array(String) | Nil = nil,
+                           typ : String? = nil,
+                           validate_claims : Bool = true) : {Bool, JWT, Hash(String, JSON::Any)}
       valid, jwt, header = verify(jwk, signed)
+
+      # §3.1 — algorithm allowlist
       alg = header["alg"]?.try(&.as_s)
       valid = false unless alg && allowed_algs.includes?(alg)
+
+      # §3.11 — explicit typing
+      if typ
+        valid = false unless header["typ"]?.try(&.as_s) == typ
+      end
+
+      # §3.3 — time-claim validation (exp / nbf)
+      if validate_claims
+        valid = false if jwt.expired?
+        valid = false if jwt.not_yet_valid?
+      end
+
+      # §3.8 — issuer
+      if iss
+        valid = false unless jwt.iss == iss
+      end
+
+      # §3.9 — audience
+      valid = false if aud && !aud_match?(jwt.aud, aud)
+
       {valid, jwt, header}
     end
 
@@ -302,6 +338,16 @@ module JOSE
                      encrypted : String | EncryptedBinary) : JWT
       plain = JWE.block_decrypt(jwk, encrypted)
       from_binary(plain)
+    end
+
+    # ── Private helpers ──────────────────────────────────────────────────────
+
+    # Returns `true` when *jwt_aud* contains at least one value from *expected*.
+    private def self.aud_match?(jwt_aud : String | Array(String) | Nil,
+                                expected : String | Array(String)) : Bool
+      expected_arr = expected.is_a?(Array) ? expected : [expected]
+      token_arr = jwt_aud.is_a?(String) ? [jwt_aud.as(String)] : (jwt_aud || [] of String)
+      expected_arr.any? { |expected_item| token_arr.includes?(expected_item) }
     end
   end
 end
