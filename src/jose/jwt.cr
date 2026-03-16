@@ -1,0 +1,307 @@
+module JOSE
+  # JWT (JSON Web Token) compact representation of claims (RFC 7519).
+  #
+  # Tokens are backed by a `Hash(String, JSON::Any)` and can be signed (JWS)
+  # or encrypted (JWE). The seven RFC 7519 registered claims (`iss`, `sub`,
+  # `aud`, `exp`, `nbf`, `iat`, `jti`) are available as typed accessors.
+  # Use the `claim` macro to define additional typed claims in a subclass:
+  #
+  # ```
+  # require "jose"
+  #
+  # class MyJWT < JOSE::JWT
+  #   claim role : String?
+  # end
+  #
+  # jwk = JOSE::JWK.generate_key_oct
+  #
+  # tok = MyJWT.new
+  # tok.sub = "alice"
+  # tok.role = "admin"
+  # tok.exp = Time.utc + 1.hour
+  #
+  # signed = JOSE::JWT.sign(jwk, tok)
+  # valid, decoded, _header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed)
+  # my_jwt = MyJWT.from_map(decoded.to_map)
+  # my_jwt.sub  # => "alice"
+  # my_jwt.role # => "admin"
+  # ```
+  class JWT
+    # The claims map backing this token.
+    getter fields : Hash(String, JSON::Any)
+
+    def initialize(@fields : Hash(String, JSON::Any))
+    end
+
+    def initialize
+      @fields = {} of String => JSON::Any
+    end
+
+    macro claim(decl)
+      {% name = decl.var %}
+      {% raw_type = decl.type %}
+      {% key = name.stringify %}
+
+      {% if raw_type.is_a?(Union) %}
+        {% non_nil = raw_type.types.reject { |type_node| type_node.stringify == "Nil" } %}
+        {% nullable = true %}
+      {% else %}
+        {% non_nil = [raw_type] %}
+        {% nullable = false %}
+      {% end %}
+
+      {% cores = non_nil.map(&.stringify) %}
+
+      {% if cores.includes?("String") && cores.includes?("Array(String)") %}
+        def {{name}} : String | Array(String) | Nil
+          raw = @fields[{{key}}]?
+          return nil if raw.nil?
+          raw.as_a? ? raw.as_a.map(&.as_s) : raw.as_s
+        end
+
+        def {{name}}=(value : String | Array(String) | Nil)
+          if value.nil?
+            @fields.delete({{key}})
+          elsif value.is_a?(Array)
+            @fields[{{key}}] = JSON::Any.new(value.map { |s| JSON::Any.new(s) })
+          else
+            @fields[{{key}}] = JSON::Any.new(value.as(String))
+          end
+        end
+
+      {% elsif cores[0] == "Time" %}
+        def {{name}} : {{raw_type}}
+          raw = @fields[{{key}}]?
+          {% if nullable %}return nil if raw.nil?{% end %}
+          Time.unix(raw.not_nil!.as_i64)
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!.to_unix)
+        end
+
+      {% elsif cores[0] == "Int64" %}
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?.try(&.as_i64){% else %}@fields[{{key}}].as_i64{% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+        end
+
+      {% elsif cores[0] == "Bool" %}
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?.try(&.as_bool){% else %}@fields[{{key}}].as_bool{% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+        end
+
+      {% elsif cores[0] == "Array(String)" %}
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?.try(&.as_a.map(&.as_s)){% else %}@fields[{{key}}].as_a.map(&.as_s){% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!.map { |s| JSON::Any.new(s) })
+        end
+
+      {% elsif cores[0] == "Array(JSON::Any)" %}
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?.try(&.as_a){% else %}@fields[{{key}}].as_a{% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+        end
+
+      {% elsif cores[0] == "JSON::Any" %}
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?{% else %}@fields[{{key}}]{% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = value.not_nil!
+        end
+
+      {% else %}
+        # String (default fallthrough)
+        def {{name}} : {{raw_type}}
+          {% if nullable %}@fields[{{key}}]?.try(&.as_s){% else %}@fields[{{key}}].as_s{% end %}
+        end
+
+        def {{name}}=(value : {{raw_type}})
+          {% if nullable %}
+            if value.nil?; @fields.delete({{key}}); return; end
+          {% end %}
+          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+        end
+      {% end %}
+    end
+
+    # ── RFC 7519 Registered Claims ───────────────────────────────────────────
+    claim iss : String?                      # Issuer
+    claim sub : String?                      # Subject
+    claim aud : String | Array(String) | Nil # Audience
+    claim exp : Time?                        # Expiration Time
+    claim nbf : Time?                        # Not Before
+    claim iat : Time?                        # Issued At
+    claim jti : String?                      # JWT ID
+
+    # ── Time-claim helpers ────────────────────────────────────────────────────
+
+    # Returns `true` if `exp` is set and is in the past relative to *now*.
+    # Does NOT verify the signature — call `verify_strict` for that.
+    def expired?(now : Time = Time.utc) : Bool
+      exp_time = self.exp
+      return false if exp_time.nil?
+      now >= exp_time
+    end
+
+    # Returns `true` if `nbf` is set and has not yet been reached relative to *now*.
+    def not_yet_valid?(now : Time = Time.utc) : Bool
+      nbf_time = self.nbf
+      return false if nbf_time.nil?
+      now < nbf_time
+    end
+
+    # Returns `true` if the token is currently valid: not expired and nbf has passed.
+    # Does NOT verify the signature — call `verify_strict` for that.
+    def valid_at?(now : Time = Time.utc) : Bool
+      !expired?(now) && !not_yet_valid?(now)
+    end
+
+    # ── Constructors ─────────────────────────────────────────────────────────
+
+    # Parses a JSON string and returns a `JWT`.
+    def self.from_binary(json : String) : self
+      new(JSON.parse(json).as_h)
+    end
+
+    # Wraps an existing claims map in a `JWT`.
+    def self.from_map(map : Hash(String, JSON::Any)) : self
+      new(map)
+    end
+
+    # ── Serialisation ────────────────────────────────────────────────────────
+
+    # Serializes the claims to a compact JSON string.
+    def to_binary : String
+      @fields.to_json
+    end
+
+    # Returns the underlying claims map.
+    def to_map : Hash(String, JSON::Any)
+      @fields
+    end
+
+    # Returns the claim for *key*, raising `KeyError` when absent.
+    def [](key : String) : JSON::Any
+      @fields[key]
+    end
+
+    # Returns the claim for *key*, or `nil` when absent.
+    def []?(key : String) : JSON::Any?
+      @fields[key]?
+    end
+
+    # ── Signing ──────────────────────────────────────────────────────────────
+
+    # Signs *jwt* with *jwk* and returns a compact `SignedBinary`.
+    #
+    # The `"typ"` header is set to `"JWT"` unless *header_overrides* provides
+    # a different value. The signing algorithm is inferred from the key type
+    # when not present in *header_overrides*.
+    def self.sign(jwk : JWK, jwt : JWT,
+                  header_overrides : Hash(String, JSON::Any)? = nil) : SignedBinary
+      overrides = {"typ" => JSON::Any.new("JWT")}
+      header_overrides.try &.each { |k, v| overrides[k] = v }
+      JWS.sign(jwk, jwt.to_binary, overrides)
+    end
+
+    # Verifies a compact JWS carrying JWT claims.
+    #
+    # Returns `{valid, jwt, protected_header}`. *valid* is `true` when the
+    # signature is correct. The JWT is decoded regardless of validity.
+    def self.verify(jwk : JWK,
+                    signed : String | SignedBinary) : {Bool, JWT, Hash(String, JSON::Any)}
+      compact = signed.is_a?(SignedBinary) ? signed.compact : signed
+      valid, payload = JWS.verify(jwk, compact)
+      jwt = from_binary(payload)
+      header = JWS.peek_protected(compact)
+      {valid, jwt, header}
+    end
+
+    # Like `verify` but also checks that the token's `"alg"` header is
+    # included in *allowed_algs*.
+    #
+    # Returns `{false, jwt, header}` when the algorithm is not in the
+    # whitelist, even if the cryptographic signature is otherwise valid.
+    # This guard protects against algorithm-confusion attacks.
+    def self.verify_strict(jwk : JWK, allowed_algs : Array(String),
+                           signed : String | SignedBinary) : {Bool, JWT, Hash(String, JSON::Any)}
+      valid, jwt, header = verify(jwk, signed)
+      alg = header["alg"]?.try(&.as_s)
+      valid = false unless alg && allowed_algs.includes?(alg)
+      {valid, jwt, header}
+    end
+
+    # ── Peek (no verification) ────────────────────────────────────────────────
+
+    # Decodes the payload of *compact* as a `JWT` without verifying the
+    # signature.
+    def self.peek_payload(compact : String) : JWT
+      from_binary(JWS.peek_payload(compact))
+    end
+
+    # Alias for `peek_payload`.
+    def self.peek(compact : String) : JWT
+      peek_payload(compact)
+    end
+
+    # Decodes the protected header of *compact* without verifying.
+    def self.peek_protected(compact : String) : Hash(String, JSON::Any)
+      JWS.peek_protected(compact)
+    end
+
+    # ── Encryption ───────────────────────────────────────────────────────────
+
+    # Encrypts *jwt* for *jwk* and returns a compact `EncryptedBinary`.
+    #
+    # The `"typ"` header is set to `"JWT"` unless *header_overrides* overrides
+    # it. The key-wrap and content-encryption algorithms are inferred from the
+    # key type when not present in *header_overrides*.
+    def self.encrypt(jwk : JWK, jwt : JWT,
+                     header_overrides : Hash(String, JSON::Any)? = nil) : EncryptedBinary
+      overrides = {"typ" => JSON::Any.new("JWT")}
+      header_overrides.try &.each { |k, v| overrides[k] = v }
+      JWE.block_encrypt(jwk, jwt.to_binary, overrides)
+    end
+
+    # Decrypts a compact JWE and returns the contained `JWT`.
+    def self.decrypt(jwk : JWK,
+                     encrypted : String | EncryptedBinary) : JWT
+      plain = JWE.block_decrypt(jwk, encrypted)
+      from_binary(plain)
+    end
+  end
+end

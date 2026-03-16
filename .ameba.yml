@@ -1,0 +1,27 @@
+# Ameba configuration for jose
+# lib_crypto.cr uses C naming conventions and is excluded from naming rules.
+# JWA modules use OpenSSL naming conventions (AES_GCM, ECDH_ES, etc.).
+# Algorithm dispatch tables have inherent cyclomatic complexity.
+
+Naming/TypeNames:
+  Excluded:
+    - src/jose/lib_crypto.cr
+    - src/jose/jwa/aes_gcm.cr
+    - src/jose/jwa/aes_cbc_hmac.cr
+    - src/jose/jwa/aes_kw.cr
+    - src/jose/jwa/ecdh_es.cr
+
+Naming/ConstantNames:
+  Excluded:
+    - src/jose/lib_crypto.cr
+
+Metrics/CyclomaticComplexity:
+  Excluded:
+    - src/jose/jwe.cr
+    - src/jose/jws.cr
+    - src/jose/jwk.cr
+
+Lint/UselessAssign:
+  Excluded:
+    - src/jose/jwt.cr
+    - spec/jose/jwt_spec.cr
