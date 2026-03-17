@@ -28,7 +28,7 @@ Heavily inspired by [ruby-jose](https://github.com/potatosalad/ruby-jose) and
    ```yaml
    dependencies:
      jose:
-       github: threez/jose
+       github: threez/jose.cr
    ```
 
 2. Run `shards install`
@@ -262,7 +262,7 @@ crystal tool format --check src/ spec/   # format check
 
 ## Contributing
 
-1. Fork it (<https://github.com/threez/jose/fork>)
+1. Fork it (<https://github.com/threez/jose.cr/fork>)
 2. Create your feature branch (`git checkout -b my-new-feature`)
 3. Commit your changes (`git commit -am 'Add some feature'`)
 4. Push to the branch (`git push origin my-new-feature`)
