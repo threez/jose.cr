@@ -1,9 +1,17 @@
-/docs/
-/lib/
+# Crystal build output
 /bin/
-/.shards/
 *.dwarf
 
-# Libraries don't need dependency lock
-# Dependencies will be locked in applications that use them
+# Crystal dependency manager
+/lib/
+/.shards/
+
+# Libraries don't need a dependency lock file;
+# it will be locked in applications that consume this shard.
 /shard.lock
+
+# Generated API documentation
+/docs/
+
+# macOS metadata
+.DS_Store
