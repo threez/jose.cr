@@ -403,6 +403,64 @@ describe JOSE::JWT do
     end
   end
 
+  # ── registered claim aliases ──────────────────────────────────────────────
+
+  describe "registered claim aliases" do
+    it "issuer aliases iss" do
+      jwt = JOSE::JWT.new
+      jwt.issuer = "example.com"
+      jwt.iss.should eq("example.com")
+      jwt.issuer.should eq("example.com")
+      jwt.issuer = nil
+      jwt.iss.should be_nil
+    end
+
+    it "subject aliases sub" do
+      jwt = JOSE::JWT.new
+      jwt.subject = "alice"
+      jwt.sub.should eq("alice")
+      jwt.subject.should eq("alice")
+    end
+
+    it "audience aliases aud" do
+      jwt = JOSE::JWT.new
+      jwt.audience = ["api", "web"]
+      jwt.aud.should eq(["api", "web"])
+      jwt.audience.should eq(["api", "web"])
+    end
+
+    it "expires_at aliases exp" do
+      jwt = JOSE::JWT.new
+      t = Time.utc(2030, 1, 1)
+      jwt.expires_at = t
+      jwt.exp.should eq(t)
+      jwt.expires_at.should eq(t)
+    end
+
+    it "not_before aliases nbf" do
+      jwt = JOSE::JWT.new
+      t = Time.utc(2025, 6, 1)
+      jwt.not_before = t
+      jwt.nbf.should eq(t)
+      jwt.not_before.should eq(t)
+    end
+
+    it "issued_at aliases iat" do
+      jwt = JOSE::JWT.new
+      t = Time.utc(2025, 1, 1)
+      jwt.issued_at = t
+      jwt.iat.should eq(t)
+      jwt.issued_at.should eq(t)
+    end
+
+    it "jwt_id aliases jti" do
+      jwt = JOSE::JWT.new
+      jwt.jwt_id = "abc-123"
+      jwt.jti.should eq("abc-123")
+      jwt.jwt_id.should eq("abc-123")
+    end
+  end
+
   # ── claim macro — subclassing ─────────────────────────────────────────────
 
   describe "claim macro — subclassing" do

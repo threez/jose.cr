@@ -82,12 +82,11 @@ require "jose"
 # Generate a shared HMAC key.
 jwk = JOSE::JWK.generate_key_oct
 
-# Build a claims map and wrap it in a JWT.
-jwt = JOSE::JWT.from_map({
-  "sub" => JSON::Any.new("alice"),
-  "iss" => JSON::Any.new("example.com"),
-})
-jwt.exp = Time.utc + 1.hour
+# Build a JWT and set registered claims with self-documenting aliases.
+jwt = JOSE::JWT.new
+jwt.subject    = "alice"
+jwt.issuer     = "example.com"
+jwt.expires_at = Time.utc + 1.hour
 
 # Sign — the "typ": "JWT" header is added automatically.
 signed = JOSE::JWT.sign(jwk, jwt)

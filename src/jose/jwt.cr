@@ -37,7 +37,7 @@ module JOSE
       @fields = {} of String => JSON::Any
     end
 
-    macro claim(decl)
+    macro claim(decl, long_name = nil)
       {% name = decl.var %}
       {% raw_type = decl.type %}
       {% key = name.stringify %}
@@ -156,16 +156,42 @@ module JOSE
           @fields[{{key}}] = JSON::Any.new(value.not_nil!)
         end
       {% end %}
+
+      {% if long_name %}
+        # Long-form alias for `{{name}}`.
+        def {{long_name.id}} : {{raw_type}}
+          {{name}}
+        end
+
+        # Long-form alias for `{{name}}=`.
+        def {{long_name.id}}=(v : {{raw_type}})
+          self.{{name}} = v
+        end
+      {% end %}
     end
 
     # ── RFC 7519 Registered Claims ───────────────────────────────────────────
-    claim iss : String?                      # Issuer
-    claim sub : String?                      # Subject
-    claim aud : String | Array(String) | Nil # Audience
-    claim exp : Time?                        # Expiration Time
-    claim nbf : Time?                        # Not Before
-    claim iat : Time?                        # Issued At
-    claim jti : String?                      # JWT ID
+
+    # Issuer identifier (RFC 7519 §4.1.1). Long-form alias: `issuer`.
+    claim iss : String?, long_name: issuer
+
+    # Subject identifier (RFC 7519 §4.1.2). Long-form alias: `subject`.
+    claim sub : String?, long_name: subject
+
+    # Audience (RFC 7519 §4.1.3). Long-form alias: `audience`.
+    claim aud : String | Array(String) | Nil, long_name: audience
+
+    # Expiration time as UTC `Time` (RFC 7519 §4.1.4). Long-form alias: `expires_at`.
+    claim exp : Time?, long_name: expires_at
+
+    # Not-before time as UTC `Time` (RFC 7519 §4.1.5). Long-form alias: `not_before`.
+    claim nbf : Time?, long_name: not_before
+
+    # Issued-at time as UTC `Time` (RFC 7519 §4.1.6). Long-form alias: `issued_at`.
+    claim iat : Time?, long_name: issued_at
+
+    # Unique JWT identifier (RFC 7519 §4.1.7). Long-form alias: `jwt_id`.
+    claim jti : String?, long_name: jwt_id
 
     # ── Time-claim helpers ────────────────────────────────────────────────────
 
