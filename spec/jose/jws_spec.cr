@@ -105,6 +105,26 @@ describe JOSE::JWS do
     valid.should be_false
   end
 
+  it "SignedBinary#detach strips payload segment" do
+    jwk = generate_oct_jwk(32)
+    signed = JOSE::JWS.sign(jwk, "hello detached")
+    detached = signed.detach
+    parts = detached.split(".")
+    parts[1].should eq("")
+    parts[0].should eq(signed.compact.split(".")[0])
+    parts[2].should eq(signed.compact.split(".")[2])
+  end
+
+  it "sign_detached / verify_detached round-trip" do
+    jwk = generate_oct_jwk(32)
+    payload = "hello detached"
+    token = JOSE::JWS.sign_detached(jwk, payload)
+    token.split(".")[1].should eq("")
+    valid, returned = JOSE::JWS.verify_detached(jwk, token, payload)
+    valid.should be_true
+    returned.should eq(payload)
+  end
+
   describe "JWS JSON Serialization (RFC 7515 §7.2)" do
     it "sign_json + verify_json round-trip (flattened, default protected header)" do
       jwk = generate_oct_jwk(32)

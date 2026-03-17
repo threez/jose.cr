@@ -87,6 +87,45 @@ module JOSE
       {valid, payload}
     end
 
+    # Signs *plain_text* and returns a **detached** compact JWS (`header..signature`)
+    # per RFC 7515 §7. The payload is never embedded in the token; verify with
+    # `JOSE::JWS.verify_detached`.
+    #
+    # More efficient than `sign(...).detach` for large payloads — the payload is
+    # used only as signing input and never concatenated into the returned string.
+    def self.sign_detached(jwk : JWK, plain_text : String,
+                           header_overrides : Hash(String, JSON::Any)? = nil) : String
+      alg = header_overrides.try(&.["alg"]?.try(&.as_s)) || default_alg(jwk)
+
+      header = {"alg" => JSON::Any.new(alg)} of String => JSON::Any
+      kid = jwk["kid"]?.try(&.as_s)
+      header["kid"] = JSON::Any.new(kid) if kid
+      header_overrides.try &.each { |k, v| header[k] = v }
+
+      b64 = header_overrides.try { |hdrs| hdrs["b64"]? }.try(&.raw) != false
+
+      unless b64
+        raise ArgumentError.new("Unencoded JWS payload must not contain '.' (RFC 7797 §7)") if plain_text.includes?('.')
+        existing_crit = header["crit"]?.try(&.as_a.map(&.as_s)) || [] of String
+        unless existing_crit.includes?("b64")
+          header["crit"] = JSON::Any.new((existing_crit + ["b64"]).map { |str| JSON::Any.new(str) })
+        end
+      end
+
+      header_b64 = Base64Url.encode(header.to_json.to_slice)
+      payload_part = b64 ? Base64Url.encode(plain_text.to_slice) : plain_text
+      signing_input = "#{header_b64}.#{payload_part}"
+      sig = compute_signature(jwk, alg, signing_input.to_slice)
+      "#{header_b64}..#{Base64Url.encode(sig)}"
+    end
+
+    # Verifies a detached compact JWS (`header..signature`) against *payload*.
+    # Returns `{valid, payload}` — the same shape as `verify`.
+    def self.verify_detached(jwk : JWK, signed : String | SignedBinary,
+                             payload : String) : {Bool, String}
+      verify(jwk, signed, detached: payload)
+    end
+
     # ── JSON Serialization (RFC 7515 §7.2) ────────────────────────────────────
 
     # Verifies a JWS JSON Serialization using *jwk*.

@@ -220,13 +220,10 @@ require "jose"
 jwk = JOSE::JWK.generate_key_oct
 payload = "the payload travels out-of-band"
 
-# Sign normally, then strip the payload segment to produce a detached token.
-signed = JOSE::JWS.sign(jwk, payload)
-parts = signed.compact.split(".")
-detached_token = "#{parts[0]}..#{parts[2]}"   # header..signature
+detached_token = JOSE::JWS.sign_detached(jwk, payload)
 
 # Verify by supplying the payload separately.
-valid, _ = JOSE::JWS.verify(jwk, detached_token, detached: payload)
+valid, _ = JOSE::JWS.verify_detached(jwk, detached_token, payload)
 valid # => true
 ```
 

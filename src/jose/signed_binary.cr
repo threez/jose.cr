@@ -24,6 +24,14 @@ module JOSE
       Base64Url.decode(parts[2])
     end
 
+    # Returns the compact JWS with the payload segment stripped for
+    # out-of-band (detached) transmission per RFC 7515 §7.
+    # Pass the original payload to `JOSE::JWS.verify_detached`.
+    def detach : String
+      p = parts
+      "#{p[0]}..#{p[2]}"
+    end
+
     private def parts : Array(String)
       @compact.split('.')
     end
