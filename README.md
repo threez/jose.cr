@@ -87,12 +87,9 @@ jwt = JOSE::JWT.from_map({
   "sub" => JSON::Any.new("alice"),
   "iss" => JSON::Any.new("example.com"),
 })
+jwt.exp = Time.utc + 1.hour
 
 # Sign — the "typ": "JWT" header is added automatically.
-signed = JOSE::JWT.sign(jwk, jwt)
-
-# Verify: enforce algorithm allowlist, issuer, audience, and expiry (RFC 8725).
-jwt.exp = Time.utc + 1.hour
 signed = JOSE::JWT.sign(jwk, jwt)
 valid, decoded, header = JOSE::JWT.verify_strict(jwk, ["HS256"], signed,
   iss: "example.com",
@@ -109,9 +106,9 @@ require "jose"
 
 # Build a key set from two keys with distinct kids.
 k1 = JOSE::JWK.generate_key_ec
-k1 = JOSE::JWK.from_map(k1.map.merge({"kid" => JSON::Any.new("sig")}))
+k1 = k1.with(kid: "sig")
 k2 = JOSE::JWK.generate_key_oct
-k2 = JOSE::JWK.from_map(k2.map.merge({"kid" => JSON::Any.new("enc")}))
+k2 = k2.with(kid: "enc")
 jwks = JOSE::JWKS.new([k1, k2])
 
 # Publish only public key material (e.g. as /.well-known/jwks.json).
@@ -168,7 +165,7 @@ payload # => "{\"sub\":\"alice\"}"
 require "jose"
 
 jwk = JOSE::JWK.generate_key_oct(size: 16)
-overrides = JSON.parse({"alg" => "A128KW", "enc" => "A128GCM"}.to_json).as_h
+overrides = {"alg" => JSON::Any.new("A128KW"), "enc" => JSON::Any.new("A128GCM")}
 
 # Encrypt to flattened JSON (optionally pass aad: Bytes for extra auth data).
 json_token = JOSE::JWE.json_encrypt(jwk, "hello json", overrides)
