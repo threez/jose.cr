@@ -39,76 +39,11 @@ module JOSE
       cek_len, iv_len = enc_params(enc)
 
       # ── Generate CEK and encrypted_key ────────────────────────────────────
-      cek = Bytes.empty
-      encrypted_key = Bytes.empty
-      epk_json : Hash(String, JSON::Any)? = nil
-      gcmkw : {Bytes, Bytes}? = nil
-
-      case alg
-      when "dir"
-        cek = jwk.key_bytes
-      when "A128KW", "A192KW", "A256KW"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = JWA::AES_KW.wrap(jwk.key_bytes, cek)
-      when "A128GCMKW", "A192GCMKW", "A256GCMKW"
-        cek = Random::Secure.random_bytes(cek_len)
-        kw_iv = Random::Secure.random_bytes(12)
-        encrypted_key, kw_tag = JWA::AES_GCM.encrypt(jwk.key_bytes, kw_iv, cek, Bytes.empty)
-        gcmkw = {kw_iv, kw_tag}
-      when "ECDH-ES"
-        # RFC 7518 §4.6.2: for direct key agreement the ConcatKDF algorithm ID
-        # is the "enc" value, not the "alg" value.
-        cek, epk_json = ecdh_es_derive(jwk, enc, enc, cek_len * 8)
-      when "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"
-        kw_alg = alg[8..] # "A128KW" etc.
-        kw_key_len = kw_alg_key_len(kw_alg)
-        # RFC 7518 §4.6.2: for key wrapping, the ConcatKDF algorithm ID is the
-        # full "alg" value (e.g. "ECDH-ES+A128KW"), not the stripped KW portion.
-        derived, epk_json = ecdh_es_derive(jwk, alg, enc, kw_key_len * 8)
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = JWA::AES_KW.wrap(derived, cek)
-      when "RSA-OAEP"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha1)
-      when "RSA-OAEP-256"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha256)
-      when "RSA1_5"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :pkcs1)
-      else
-        raise ArgumentError.new("Unsupported JWE alg: #{alg}")
-      end
+      cek, encrypted_key, epk_json, gcmkw = generate_cek(jwk, alg, enc, cek_len)
 
       # ── Build protected header ─────────────────────────────────────────────
       kid = jwk["kid"]?.try(&.as_s)
-      protected_header = Base64Url.encode(
-        String.build { |io|
-          JSON.build(io) do |json|
-            json.object do
-              json.field "alg", alg
-              json.field "enc", enc
-              json.field "zip", zip if zip
-              json.field "kid", kid if kid
-              if epk_json
-                json.field "epk" do
-                  json.object do
-                    epk_json.each { |k, v| json.field k, v }
-                  end
-                end
-              end
-              if kw = gcmkw
-                json.field "iv", Base64Url.encode(kw[0])
-                json.field "tag", Base64Url.encode(kw[1])
-              end
-              header_overrides.try &.each do |k, v|
-                next if %w[alg enc zip kid epk iv tag].includes?(k)
-                json.field k, v
-              end
-            end
-          end
-        }.to_slice
-      )
+      protected_header = build_protected_header(alg, enc, zip, kid, epk_json, gcmkw, header_overrides)
 
       # ── Encrypt content ────────────────────────────────────────────────────
       iv = Random::Secure.random_bytes(iv_len)
@@ -116,19 +51,7 @@ module JOSE
       content = zip == "DEF" ? deflate_compress(plain_text.to_slice) : plain_text.to_slice
       ciphertext, tag = enc_encrypt(enc, cek, iv, content, aad)
 
-      compact = String.build do |io|
-        io << protected_header
-        io << '.'
-        io << Base64Url.encode(encrypted_key)
-        io << '.'
-        io << Base64Url.encode(iv)
-        io << '.'
-        io << Base64Url.encode(ciphertext)
-        io << '.'
-        io << Base64Url.encode(tag)
-      end
-
-      EncryptedBinary.new(compact)
+      assemble_compact(protected_header, encrypted_key, iv, ciphertext, tag)
     end
 
     # Decrypts a compact JWE using *jwk*, which must contain the private key
@@ -138,17 +61,7 @@ module JOSE
     # `EncryptedBinary` returned by `#block_encrypt`. Raises `ArgumentError` if
     # the string does not contain exactly five dot-separated parts.
     def self.block_decrypt(jwk : JWK, encrypted : String | EncryptedBinary) : String
-      compact = encrypted.is_a?(EncryptedBinary) ? encrypted.compact : encrypted
-      parts = compact.split('.')
-      raise ArgumentError.new("Invalid compact JWE") unless parts.size == 5
-
-      protected_header_b64 = parts[0]
-      encrypted_key_bytes = Base64Url.decode(parts[1])
-      iv = Base64Url.decode(parts[2])
-      ciphertext = Base64Url.decode(parts[3])
-      tag = Base64Url.decode(parts[4])
-
-      header = JSON.parse(String.new(Base64Url.decode(protected_header_b64))).as_h
+      protected_header_b64, encrypted_key_bytes, iv, ciphertext, tag, header = parse_compact(encrypted)
       alg = header["alg"].as_s
       enc = header["enc"].as_s
       aad = protected_header_b64.to_slice
@@ -174,69 +87,10 @@ module JOSE
       zip = header_overrides.try(&.["zip"]?.try(&.as_s))
       cek_len, iv_len = enc_params(enc)
 
-      cek = Bytes.empty
-      encrypted_key = Bytes.empty
-      epk_json : Hash(String, JSON::Any)? = nil
-      gcmkw : {Bytes, Bytes}? = nil
-
-      case alg
-      when "dir"
-        cek = jwk.key_bytes
-      when "A128KW", "A192KW", "A256KW"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = JWA::AES_KW.wrap(jwk.key_bytes, cek)
-      when "A128GCMKW", "A192GCMKW", "A256GCMKW"
-        cek = Random::Secure.random_bytes(cek_len)
-        kw_iv = Random::Secure.random_bytes(12)
-        encrypted_key, kw_tag = JWA::AES_GCM.encrypt(jwk.key_bytes, kw_iv, cek, Bytes.empty)
-        gcmkw = {kw_iv, kw_tag}
-      when "ECDH-ES"
-        cek, epk_json = ecdh_es_derive(jwk, enc, enc, cek_len * 8)
-      when "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"
-        kw_alg = alg[8..]
-        kw_key_len = kw_alg_key_len(kw_alg)
-        derived, epk_json = ecdh_es_derive(jwk, alg, enc, kw_key_len * 8)
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = JWA::AES_KW.wrap(derived, cek)
-      when "RSA-OAEP"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha1)
-      when "RSA-OAEP-256"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha256)
-      when "RSA1_5"
-        cek = Random::Secure.random_bytes(cek_len)
-        encrypted_key = rsa_encrypt(jwk, cek, :pkcs1)
-      else
-        raise ArgumentError.new("Unsupported JWE alg: #{alg}")
-      end
+      cek, encrypted_key, epk_json, gcmkw = generate_cek(jwk, alg, enc, cek_len)
 
       kid = jwk["kid"]?.try(&.as_s)
-      protected_b64 = Base64Url.encode(
-        String.build { |io|
-          JSON.build(io) do |json|
-            json.object do
-              json.field "alg", alg
-              json.field "enc", enc
-              json.field "zip", zip if zip
-              json.field "kid", kid if kid
-              if epk_json
-                json.field "epk" do
-                  json.object { epk_json.each { |k, v| json.field k, v } }
-                end
-              end
-              if kw = gcmkw
-                json.field "iv", Base64Url.encode(kw[0])
-                json.field "tag", Base64Url.encode(kw[1])
-              end
-              header_overrides.try &.each do |k, v|
-                next if %w[alg enc zip kid epk iv tag].includes?(k)
-                json.field k, v
-              end
-            end
-          end
-        }.to_slice
-      )
+      protected_b64 = build_protected_header(alg, enc, zip, kid, epk_json, gcmkw, header_overrides)
 
       aad_b64 = aad.try { |bytes| Base64Url.encode(bytes) }
       content_aad = aad_b64 ? "#{protected_b64}.#{aad_b64}".to_slice : protected_b64.to_slice
@@ -359,36 +213,14 @@ module JOSE
       aad = protected_header.to_slice
       ciphertext, tag = enc_encrypt(enc, cek, iv, plain_text.to_slice, aad)
 
-      compact = String.build do |io|
-        io << protected_header
-        io << '.'
-        io << Base64Url.encode(encrypted_key)
-        io << '.'
-        io << Base64Url.encode(iv)
-        io << '.'
-        io << Base64Url.encode(ciphertext)
-        io << '.'
-        io << Base64Url.encode(tag)
-      end
-
-      EncryptedBinary.new(compact)
+      assemble_compact(protected_header, encrypted_key, iv, ciphertext, tag)
     end
 
     # Decrypts a compact PBES2 JWE token using the given *password*.
     # Reads `alg`, `p2s`, and `p2c` from the protected header to reconstruct
     # the key-encryption key via PBKDF2, then unwraps the CEK and decrypts.
     def self.block_decrypt(password : String, encrypted : String | EncryptedBinary) : String
-      compact = encrypted.is_a?(EncryptedBinary) ? encrypted.compact : encrypted
-      parts = compact.split('.')
-      raise ArgumentError.new("Invalid compact JWE") unless parts.size == 5
-
-      protected_header_b64 = parts[0]
-      encrypted_key_bytes = Base64Url.decode(parts[1])
-      iv = Base64Url.decode(parts[2])
-      ciphertext = Base64Url.decode(parts[3])
-      tag = Base64Url.decode(parts[4])
-
-      header = JSON.parse(String.new(Base64Url.decode(protected_header_b64))).as_h
+      protected_header_b64, encrypted_key_bytes, iv, ciphertext, tag, header = parse_compact(encrypted)
       alg = header["alg"].as_s
       enc = header["enc"].as_s
       p2s = Base64Url.decode(header["p2s"].as_s)
@@ -434,6 +266,122 @@ module JOSE
     end
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    private def self.generate_cek(
+      jwk : JWK, alg : String, enc : String, cek_len : Int32,
+    ) : {Bytes, Bytes, Hash(String, JSON::Any)?, {Bytes, Bytes}?}
+      cek = Bytes.empty
+      encrypted_key = Bytes.empty
+      epk_json : Hash(String, JSON::Any)? = nil
+      gcmkw : {Bytes, Bytes}? = nil
+
+      case alg
+      when "dir"
+        cek = jwk.key_bytes
+      when "A128KW", "A192KW", "A256KW"
+        cek = Random::Secure.random_bytes(cek_len)
+        encrypted_key = JWA::AES_KW.wrap(jwk.key_bytes, cek)
+      when "A128GCMKW", "A192GCMKW", "A256GCMKW"
+        cek = Random::Secure.random_bytes(cek_len)
+        kw_iv = Random::Secure.random_bytes(12)
+        encrypted_key, kw_tag = JWA::AES_GCM.encrypt(jwk.key_bytes, kw_iv, cek, Bytes.empty)
+        gcmkw = {kw_iv, kw_tag}
+      when "ECDH-ES"
+        # RFC 7518 §4.6.2: for direct key agreement the ConcatKDF algorithm ID
+        # is the "enc" value, not the "alg" value.
+        cek, epk_json = ecdh_es_derive(jwk, enc, enc, cek_len * 8)
+      when "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"
+        kw_alg = alg[8..] # "A128KW" etc.
+        kw_key_len = kw_alg_key_len(kw_alg)
+        # RFC 7518 §4.6.2: for key wrapping, the ConcatKDF algorithm ID is the
+        # full "alg" value (e.g. "ECDH-ES+A128KW"), not the stripped KW portion.
+        derived, epk_json = ecdh_es_derive(jwk, alg, enc, kw_key_len * 8)
+        cek = Random::Secure.random_bytes(cek_len)
+        encrypted_key = JWA::AES_KW.wrap(derived, cek)
+      when "RSA-OAEP"
+        cek = Random::Secure.random_bytes(cek_len)
+        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha1)
+      when "RSA-OAEP-256"
+        cek = Random::Secure.random_bytes(cek_len)
+        encrypted_key = rsa_encrypt(jwk, cek, :oaep_sha256)
+      when "RSA1_5"
+        cek = Random::Secure.random_bytes(cek_len)
+        encrypted_key = rsa_encrypt(jwk, cek, :pkcs1)
+      else
+        raise ArgumentError.new("Unsupported JWE alg: #{alg}")
+      end
+
+      {cek, encrypted_key, epk_json, gcmkw}
+    end
+
+    private def self.build_protected_header(
+      alg : String, enc : String, zip : String?,
+      kid : String?, epk_json : Hash(String, JSON::Any)?,
+      gcmkw : {Bytes, Bytes}?,
+      header_overrides : Hash(String, JSON::Any)?,
+    ) : String
+      Base64Url.encode(
+        String.build { |io|
+          JSON.build(io) do |json|
+            json.object do
+              json.field "alg", alg
+              json.field "enc", enc
+              json.field "zip", zip if zip
+              json.field "kid", kid if kid
+              if epk_json
+                json.field "epk" do
+                  json.object do
+                    epk_json.each { |k, v| json.field k, v }
+                  end
+                end
+              end
+              if kw = gcmkw
+                json.field "iv", Base64Url.encode(kw[0])
+                json.field "tag", Base64Url.encode(kw[1])
+              end
+              header_overrides.try &.each do |k, v|
+                next if %w[alg enc zip kid epk iv tag].includes?(k)
+                json.field k, v
+              end
+            end
+          end
+        }.to_slice
+      )
+    end
+
+    private def self.assemble_compact(
+      protected_header : String, encrypted_key : Bytes,
+      iv : Bytes, ciphertext : Bytes, tag : Bytes,
+    ) : EncryptedBinary
+      EncryptedBinary.new(String.build { |io|
+        io << protected_header
+        io << '.'
+        io << Base64Url.encode(encrypted_key)
+        io << '.'
+        io << Base64Url.encode(iv)
+        io << '.'
+        io << Base64Url.encode(ciphertext)
+        io << '.'
+        io << Base64Url.encode(tag)
+      })
+    end
+
+    private def self.parse_compact(
+      encrypted : String | EncryptedBinary,
+    ) : {String, Bytes, Bytes, Bytes, Bytes, Hash(String, JSON::Any)}
+      compact = encrypted.is_a?(EncryptedBinary) ? encrypted.compact : encrypted
+      parts = compact.split('.')
+      raise ArgumentError.new("Invalid compact JWE") unless parts.size == 5
+
+      protected_b64 = parts[0]
+      encrypted_key = Base64Url.decode(parts[1])
+      iv = Base64Url.decode(parts[2])
+      ciphertext = Base64Url.decode(parts[3])
+      tag = Base64Url.decode(parts[4])
+      header = JSON.parse(String.new(Base64Url.decode(protected_b64))).as_h
+
+      {protected_b64, encrypted_key, iv, ciphertext, tag, header}
+    end
 
     private def self.resolve_alg_enc(jwk : JWK, overrides : Hash(String, JSON::Any)?) : {String, String}
       alg = overrides.try(&.["alg"]?.try(&.as_s))
@@ -638,7 +586,7 @@ module JOSE
       end
     end
 
-    private def self.rsa_oaep256_encrypt(rsa : LibCryptoJose::RSA, plaintext : Bytes) : Bytes
+    private def self.with_rsa_oaep256_ctx(rsa : LibCryptoJose::RSA, encrypt : Bool, &block : LibCryptoJose::EVP_PKEY_CTX -> Bytes) : Bytes
       pkey = LibCryptoJose.EVP_PKEY_new
       raise "EVP_PKEY_new failed" if pkey.null?
       begin
@@ -646,19 +594,18 @@ module JOSE
         ctx = LibCryptoJose.EVP_PKEY_CTX_new(pkey, Pointer(Void).null)
         raise "EVP_PKEY_CTX_new failed" if ctx.null?
         begin
-          raise "EVP_PKEY_encrypt_init failed" unless LibCryptoJose.EVP_PKEY_encrypt_init(ctx) == 1
+          if encrypt
+            raise "EVP_PKEY_encrypt_init failed" unless LibCryptoJose.EVP_PKEY_encrypt_init(ctx) == 1
+          else
+            raise "EVP_PKEY_decrypt_init failed" unless LibCryptoJose.EVP_PKEY_decrypt_init(ctx) == 1
+          end
           raise "EVP_PKEY_CTX_ctrl failed (padding)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
                                                               LibCryptoJose::EVP_PKEY_CTRL_RSA_PADDING, LibCryptoJose::RSA_PKCS1_OAEP_PADDING, Pointer(Void).null) > 0
           raise "EVP_PKEY_CTX_ctrl failed (oaep md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
                                                               LibCryptoJose::EVP_PKEY_CTRL_RSA_OAEP_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
           raise "EVP_PKEY_CTX_ctrl failed (mgf1 md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
                                                               LibCryptoJose::EVP_PKEY_CTRL_RSA_MGF1_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
-          outlen = LibC::SizeT.new(0)
-          LibCryptoJose.EVP_PKEY_encrypt(ctx, Pointer(UInt8).null, pointerof(outlen), plaintext, plaintext.size)
-          out_buf = Bytes.new(outlen)
-          ret = LibCryptoJose.EVP_PKEY_encrypt(ctx, out_buf, pointerof(outlen), plaintext, plaintext.size)
-          raise "EVP_PKEY_encrypt failed" unless ret == 1
-          out_buf[0, outlen.to_i]
+          block.call(ctx)
         ensure
           LibCryptoJose.EVP_PKEY_CTX_free(ctx)
         end
@@ -667,32 +614,23 @@ module JOSE
       end
     end
 
+    private def self.rsa_oaep256_encrypt(rsa : LibCryptoJose::RSA, plaintext : Bytes) : Bytes
+      with_rsa_oaep256_ctx(rsa, true) do |ctx|
+        outlen = LibC::SizeT.new(0)
+        LibCryptoJose.EVP_PKEY_encrypt(ctx, Pointer(UInt8).null, pointerof(outlen), plaintext, plaintext.size)
+        out_buf = Bytes.new(outlen)
+        raise "EVP_PKEY_encrypt failed" unless LibCryptoJose.EVP_PKEY_encrypt(ctx, out_buf, pointerof(outlen), plaintext, plaintext.size) == 1
+        out_buf[0, outlen.to_i]
+      end
+    end
+
     private def self.rsa_oaep256_decrypt(rsa : LibCryptoJose::RSA, ciphertext : Bytes) : Bytes
-      pkey = LibCryptoJose.EVP_PKEY_new
-      raise "EVP_PKEY_new failed" if pkey.null?
-      begin
-        LibCryptoJose.EVP_PKEY_set1_RSA(pkey, rsa)
-        ctx = LibCryptoJose.EVP_PKEY_CTX_new(pkey, Pointer(Void).null)
-        raise "EVP_PKEY_CTX_new failed" if ctx.null?
-        begin
-          raise "EVP_PKEY_decrypt_init failed" unless LibCryptoJose.EVP_PKEY_decrypt_init(ctx) == 1
-          raise "EVP_PKEY_CTX_ctrl failed (padding)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_PADDING, LibCryptoJose::RSA_PKCS1_OAEP_PADDING, Pointer(Void).null) > 0
-          raise "EVP_PKEY_CTX_ctrl failed (oaep md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_OAEP_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
-          raise "EVP_PKEY_CTX_ctrl failed (mgf1 md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_MGF1_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
-          outlen = LibC::SizeT.new(0)
-          LibCryptoJose.EVP_PKEY_decrypt(ctx, Pointer(UInt8).null, pointerof(outlen), ciphertext, ciphertext.size)
-          out_buf = Bytes.new(outlen)
-          ret = LibCryptoJose.EVP_PKEY_decrypt(ctx, out_buf, pointerof(outlen), ciphertext, ciphertext.size)
-          raise "EVP_PKEY_decrypt failed" unless ret == 1
-          out_buf[0, outlen.to_i]
-        ensure
-          LibCryptoJose.EVP_PKEY_CTX_free(ctx)
-        end
-      ensure
-        LibCryptoJose.EVP_PKEY_free(pkey)
+      with_rsa_oaep256_ctx(rsa, false) do |ctx|
+        outlen = LibC::SizeT.new(0)
+        LibCryptoJose.EVP_PKEY_decrypt(ctx, Pointer(UInt8).null, pointerof(outlen), ciphertext, ciphertext.size)
+        out_buf = Bytes.new(outlen)
+        raise "EVP_PKEY_decrypt failed" unless LibCryptoJose.EVP_PKEY_decrypt(ctx, out_buf, pointerof(outlen), ciphertext, ciphertext.size) == 1
+        out_buf[0, outlen.to_i]
       end
     end
 

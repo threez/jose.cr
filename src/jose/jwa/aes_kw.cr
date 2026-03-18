@@ -20,7 +20,7 @@ module JOSE
             input.write(a)
             input.write(r[i])
 
-            b = aes_ecb_encrypt(kek, input.to_slice)
+            b = aes_ecb_op(kek, input.to_slice, true)
 
             t = (n * j + i + 1).to_u64
             a = b[0, 8].dup
@@ -60,7 +60,7 @@ module JOSE
             input.write(a_xor)
             input.write(r[i - 1])
 
-            b = aes_ecb_decrypt(kek, input.to_slice)
+            b = aes_ecb_op(kek, input.to_slice, false)
             a = b[0, 8].dup
             r[i - 1] = b[8, 8].dup
           end
@@ -73,24 +73,12 @@ module JOSE
         result.to_slice
       end
 
-      private def self.aes_ecb_encrypt(key : Bytes, data : Bytes) : Bytes
+      private def self.aes_ecb_op(key : Bytes, data : Bytes, encrypt : Bool) : Bytes
         cipher = OpenSSL::Cipher.new("aes-#{key.size * 8}-ecb")
-        cipher.encrypt
+        encrypt ? cipher.encrypt : cipher.decrypt
         cipher.padding = false
         cipher.key = key
-        b = cipher.update(data)
-        b_final = cipher.final
-        b + b_final
-      end
-
-      private def self.aes_ecb_decrypt(key : Bytes, data : Bytes) : Bytes
-        cipher = OpenSSL::Cipher.new("aes-#{key.size * 8}-ecb")
-        cipher.decrypt
-        cipher.padding = false
-        cipher.key = key
-        b = cipher.update(data)
-        b_final = cipher.final
-        b + b_final
+        cipher.update(data) + cipher.final
       end
     end
   end
