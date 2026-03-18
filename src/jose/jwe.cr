@@ -541,22 +541,7 @@ module JOSE
     private def self.rsa_encrypt(jwk : JWK, plaintext : Bytes, mode : Symbol) : Bytes
       rsa = jwk.rsa_raw_key
       begin
-        rsa_size = LibCryptoJose.RSA_size(rsa)
-        out_buf = Bytes.new(rsa_size)
-        case mode
-        when :oaep_sha1
-          len = LibCryptoJose.RSA_public_encrypt(plaintext.size, plaintext, out_buf, rsa, LibCryptoJose::RSA_PKCS1_OAEP_PADDING)
-          raise "RSA_public_encrypt failed" if len < 0
-          out_buf[0, len]
-        when :pkcs1
-          len = LibCryptoJose.RSA_public_encrypt(plaintext.size, plaintext, out_buf, rsa, LibCryptoJose::RSA_PKCS1_PADDING)
-          raise "RSA_public_encrypt failed" if len < 0
-          out_buf[0, len]
-        when :oaep_sha256
-          rsa_oaep256_encrypt(rsa, plaintext)
-        else
-          raise ArgumentError.new("Unknown RSA mode")
-        end
+        JWA::RSA_KW.encrypt(rsa, plaintext, mode)
       ensure
         LibCryptoJose.RSA_free(rsa)
       end
@@ -565,72 +550,9 @@ module JOSE
     private def self.rsa_decrypt(jwk : JWK, ciphertext : Bytes, mode : Symbol) : Bytes
       rsa = jwk.rsa_raw_key
       begin
-        rsa_size = LibCryptoJose.RSA_size(rsa)
-        out_buf = Bytes.new(rsa_size)
-        case mode
-        when :oaep_sha1
-          len = LibCryptoJose.RSA_private_decrypt(ciphertext.size, ciphertext, out_buf, rsa, LibCryptoJose::RSA_PKCS1_OAEP_PADDING)
-          raise "RSA_private_decrypt failed" if len < 0
-          out_buf[0, len]
-        when :pkcs1
-          len = LibCryptoJose.RSA_private_decrypt(ciphertext.size, ciphertext, out_buf, rsa, LibCryptoJose::RSA_PKCS1_PADDING)
-          raise "RSA_private_decrypt failed" if len < 0
-          out_buf[0, len]
-        when :oaep_sha256
-          rsa_oaep256_decrypt(rsa, ciphertext)
-        else
-          raise ArgumentError.new("Unknown RSA mode")
-        end
+        JWA::RSA_KW.decrypt(rsa, ciphertext, mode)
       ensure
         LibCryptoJose.RSA_free(rsa)
-      end
-    end
-
-    private def self.with_rsa_oaep256_ctx(rsa : LibCryptoJose::RSA, encrypt : Bool, &block : LibCryptoJose::EVP_PKEY_CTX -> Bytes) : Bytes
-      pkey = LibCryptoJose.EVP_PKEY_new
-      raise "EVP_PKEY_new failed" if pkey.null?
-      begin
-        LibCryptoJose.EVP_PKEY_set1_RSA(pkey, rsa)
-        ctx = LibCryptoJose.EVP_PKEY_CTX_new(pkey, Pointer(Void).null)
-        raise "EVP_PKEY_CTX_new failed" if ctx.null?
-        begin
-          if encrypt
-            raise "EVP_PKEY_encrypt_init failed" unless LibCryptoJose.EVP_PKEY_encrypt_init(ctx) == 1
-          else
-            raise "EVP_PKEY_decrypt_init failed" unless LibCryptoJose.EVP_PKEY_decrypt_init(ctx) == 1
-          end
-          raise "EVP_PKEY_CTX_ctrl failed (padding)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_PADDING, LibCryptoJose::RSA_PKCS1_OAEP_PADDING, Pointer(Void).null) > 0
-          raise "EVP_PKEY_CTX_ctrl failed (oaep md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_OAEP_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
-          raise "EVP_PKEY_CTX_ctrl failed (mgf1 md)" unless LibCryptoJose.EVP_PKEY_CTX_ctrl(ctx, LibCryptoJose::EVP_PKEY_RSA, -1,
-                                                              LibCryptoJose::EVP_PKEY_CTRL_RSA_MGF1_MD, 0, LibCrypto.evp_sha256.as(Void*)) > 0
-          block.call(ctx)
-        ensure
-          LibCryptoJose.EVP_PKEY_CTX_free(ctx)
-        end
-      ensure
-        LibCryptoJose.EVP_PKEY_free(pkey)
-      end
-    end
-
-    private def self.rsa_oaep256_encrypt(rsa : LibCryptoJose::RSA, plaintext : Bytes) : Bytes
-      with_rsa_oaep256_ctx(rsa, true) do |ctx|
-        outlen = LibC::SizeT.new(0)
-        LibCryptoJose.EVP_PKEY_encrypt(ctx, Pointer(UInt8).null, pointerof(outlen), plaintext, plaintext.size)
-        out_buf = Bytes.new(outlen)
-        raise "EVP_PKEY_encrypt failed" unless LibCryptoJose.EVP_PKEY_encrypt(ctx, out_buf, pointerof(outlen), plaintext, plaintext.size) == 1
-        out_buf[0, outlen.to_i]
-      end
-    end
-
-    private def self.rsa_oaep256_decrypt(rsa : LibCryptoJose::RSA, ciphertext : Bytes) : Bytes
-      with_rsa_oaep256_ctx(rsa, false) do |ctx|
-        outlen = LibC::SizeT.new(0)
-        LibCryptoJose.EVP_PKEY_decrypt(ctx, Pointer(UInt8).null, pointerof(outlen), ciphertext, ciphertext.size)
-        out_buf = Bytes.new(outlen)
-        raise "EVP_PKEY_decrypt failed" unless LibCryptoJose.EVP_PKEY_decrypt(ctx, out_buf, pointerof(outlen), ciphertext, ciphertext.size) == 1
-        out_buf[0, outlen.to_i]
       end
     end
 
