@@ -30,13 +30,29 @@ module JOSE
     # The claims map backing this token.
     getter fields : Hash(String, JSON::Any)
 
+    # Constructs a `JWT` pre-populated with *fields*.
     def initialize(@fields : Hash(String, JSON::Any))
     end
 
+    # Constructs an empty `JWT` with no claims set.
     def initialize
       @fields = {} of String => JSON::Any
     end
 
+    # Defines a typed getter/setter pair for a JWT claim.
+    #
+    # The claim name becomes the JSON key. Supported types: `String`, `String?`,
+    # `String | Array(String) | Nil`, `Time?`, `Int64?`, `Bool?`,
+    # `Array(String)?`, `Array(JSON::Any)?`, and `JSON::Any?`.
+    #
+    # An optional *long_name* adds human-readable aliases (e.g. `issuer` for `iss`).
+    #
+    # ```
+    # class MyJWT < JOSE::JWT
+    #   claim role : String?
+    #   claim exp_detail : Time?, long_name: expires_at_detail
+    # end
+    # ```
     macro claim(decl, long_name = nil)
       {% name = decl.var %}
       {% raw_type = decl.type %}

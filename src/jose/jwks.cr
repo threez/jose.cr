@@ -9,6 +9,7 @@ module JOSE
 
     getter keys : Array(JWK)
 
+    # Constructs a `JWKS` from an ordered array of `JWK` objects.
     def initialize(@keys : Array(JWK))
     end
 

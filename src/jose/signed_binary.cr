@@ -5,6 +5,7 @@ module JOSE
     # The raw compact JWS serialization (`header.payload.signature`).
     getter compact : String
 
+    # Wraps the raw compact JWS string. Prefer `JWS.sign` or `JWK#sign`.
     def initialize(@compact : String)
     end
 

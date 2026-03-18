@@ -4,6 +4,14 @@ module JOSE
     # All methods accept a raw LibCryptoJose::RSA pointer (no JWK awareness).
     # Callers are responsible for freeing the RSA key.
     module RSA_KW
+      # Encrypts *plaintext* with the given RSA public key.
+      #
+      # *mode* selects the padding scheme:
+      # - `:oaep_sha1` — RSAES-OAEP with SHA-1 (RFC 7518 §4.2, `RSA-OAEP`)
+      # - `:oaep_sha256` — RSAES-OAEP with SHA-256 (RFC 7518 §4.3, `RSA-OAEP-256`)
+      # - `:pkcs1` — RSAES-PKCS1-v1_5 (RFC 7518 §4.1, `RSA1_5`)
+      #
+      # Returns the encrypted key bytes.
       def self.encrypt(rsa : LibCryptoJose::RSA, plaintext : Bytes, mode : Symbol) : Bytes
         rsa_size = LibCryptoJose.RSA_size(rsa)
         out_buf = Bytes.new(rsa_size)
@@ -23,6 +31,10 @@ module JOSE
         end
       end
 
+      # Decrypts *ciphertext* with the given RSA private key.
+      #
+      # *mode* must match the mode used during encryption (see `encrypt`).
+      # Returns the decrypted plaintext bytes.
       def self.decrypt(rsa : LibCryptoJose::RSA, ciphertext : Bytes, mode : Symbol) : Bytes
         rsa_size = LibCryptoJose.RSA_size(rsa)
         out_buf = Bytes.new(rsa_size)

@@ -4,6 +4,7 @@ module JOSE
     # The underlying JSON map holding all key parameters.
     getter map : Hash(String, JSON::Any)
 
+    # Wraps *map* in a new `JWK`. Prefer `from_map` or the factory methods.
     def initialize(@map : Hash(String, JSON::Any))
     end
 
@@ -290,6 +291,7 @@ module JOSE
       @map == other.map
     end
 
+    # Hashes by key map content, making `JWK` usable in `Hash` and `Set`.
     def hash(hasher)
       @map.hash(hasher)
     end

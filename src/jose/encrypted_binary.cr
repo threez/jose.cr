@@ -6,9 +6,11 @@ module JOSE
     # The raw compact JWE serialization (`header.key.iv.ciphertext.tag`).
     getter compact : String
 
+    # Wraps the raw compact JWE string. Prefer `JWE.block_encrypt` or `JWK#block_encrypt`.
     def initialize(@compact : String)
     end
 
+    # Writes the compact JWE serialization to *io*.
     def to_s(io : IO) : Nil
       io << @compact
     end
