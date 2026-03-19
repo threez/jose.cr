@@ -3,7 +3,7 @@ module JOSE
     # RSA key transport — RFC 7518 §4.1–4.3.
     # All methods accept a raw LibCryptoJose::RSA pointer (no JWK awareness).
     # Callers are responsible for freeing the RSA key.
-    module RSA_KW
+    module RSA_KW # ameba:disable Naming/TypeNames
       # Encrypts *plaintext* with the given RSA public key.
       #
       # *mode* selects the padding scheme:
