@@ -1,5 +1,5 @@
 name: jose
-version: 1.3.0
+version: 1.3.1
 description: >
   JSON Object Signing and Encryption (JOSE) for Crystal — JWS, JWE, JWT,
   and JWKS backed by OpenSSL, covering RFC 7515–7520.
