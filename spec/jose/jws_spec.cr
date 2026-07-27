@@ -37,6 +37,26 @@ describe JOSE::JWS do
     payload.should eq("verify with public")
   end
 
+  it "verify rejects a signature segment that is not valid base64url" do
+    jwk = generate_oct_jwk(32)
+    signed = JOSE::JWS.sign(jwk, "hello hmac")
+    parts = signed.compact.split(".")
+    tampered = "#{parts[0]}.#{parts[1]}.not-valid-base64url!!!"
+    valid, payload = JOSE::JWS.verify(jwk, tampered)
+    valid.should be_false
+    payload.should eq("hello hmac")
+  end
+
+  it "ES256 verify rejects a signature of the wrong byte length" do
+    jwk = JOSE::JWK.from_map(generate_ec_jwk_map)
+    signed = JOSE::JWS.sign(jwk, "hello ecdsa")
+    parts = signed.compact.split(".")
+    short_sig = JOSE::Base64Url.encode("too-short".to_slice)
+    tampered = "#{parts[0]}.#{parts[1]}.#{short_sig}"
+    valid, _ = JOSE::JWS.verify(jwk, tampered)
+    valid.should be_false
+  end
+
   it "ES384 sign + verify round-trip" do
     params = JSON.parse({"kty" => "EC", "crv" => "P-384"}.to_json).as_h
     jwk = JOSE::JWK.generate_key(params)

@@ -70,7 +70,6 @@ module JOSE
 
       header = JSON.parse(String.new(Base64Url.decode(parts[0]))).as_h
       alg = header["alg"].as_s
-      sig = Base64Url.decode(parts[2])
       b64 = header["b64"]?.try(&.as_bool) != false
 
       if detached
@@ -81,6 +80,12 @@ module JOSE
       else
         signing_input = "#{parts[0]}.#{parts[1]}"
         payload = b64 ? String.new(Base64Url.decode(parts[1])) : parts[1]
+      end
+
+      sig = begin
+        Base64Url.decode(parts[2])
+      rescue Base64::Error
+        return {false, payload}
       end
 
       valid = verify_signature(jwk, alg, signing_input.to_slice, sig)
@@ -337,6 +342,7 @@ module JOSE
 
     private def self.ecdsa_verify(jwk : JWK, alg : String, input : Bytes, raw_sig : Bytes) : Bool
       coord_size = ecdsa_coord_size(alg)
+      return false if raw_sig.size != 2 * coord_size
       md = ecdsa_md(alg)
 
       ec_key = jwk.ec_public_key
