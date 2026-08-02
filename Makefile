@@ -13,6 +13,7 @@ spec:
 
 lib/ameba/bin/ameba:
 	shards install
+	cd lib/ameba && shards build ameba
 
 lint: lib/ameba/bin/ameba
 	lib/ameba/bin/ameba

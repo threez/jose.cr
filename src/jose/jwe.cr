@@ -193,7 +193,7 @@ module JOSE
       encrypted_key = JWA::AES_KW.wrap(kek, cek)
 
       protected_header = Base64Url.encode(
-        String.build { |io|
+        String.build do |io|
           JSON.build(io) do |json|
             json.object do
               json.field "alg", alg
@@ -206,7 +206,7 @@ module JOSE
               end
             end
           end
-        }.to_slice
+        end.to_slice
       )
 
       iv = Random::Secure.random_bytes(iv_len)
@@ -321,7 +321,7 @@ module JOSE
       header_overrides : Hash(String, JSON::Any)?,
     ) : String
       Base64Url.encode(
-        String.build { |io|
+        String.build do |io|
           JSON.build(io) do |json|
             json.object do
               json.field "alg", alg
@@ -345,7 +345,7 @@ module JOSE
               end
             end
           end
-        }.to_slice
+        end.to_slice
       )
     end
 
@@ -353,7 +353,7 @@ module JOSE
       protected_header : String, encrypted_key : Bytes,
       iv : Bytes, ciphertext : Bytes, tag : Bytes,
     ) : EncryptedBinary
-      EncryptedBinary.new(String.build { |io|
+      EncryptedBinary.new(String.build do |io|
         io << protected_header
         io << '.'
         io << Base64Url.encode(encrypted_key)
@@ -363,7 +363,7 @@ module JOSE
         io << Base64Url.encode(ciphertext)
         io << '.'
         io << Base64Url.encode(tag)
-      })
+      end)
     end
 
     private def self.parse_compact(

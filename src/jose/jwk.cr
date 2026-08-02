@@ -205,14 +205,14 @@ module JOSE
     end
 
     private macro def_generate_key(name, kty, param_name, param_default)
-      # Generates a new `{{kty}}` key.
-      # *{{param_name}}* defaults to `{{param_default}}`. See `generate_key` for details.
-      def self.generate_key_{{name}}(
-        {{param_name}} : {% if param_default.is_a?(NumberLiteral) %}Int32{% else %}String{% end %} = {{param_default}}
+      # Generates a new `{{ kty }}` key.
+      # *{{ param_name }}* defaults to `{{ param_default }}`. See `generate_key` for details.
+      def self.generate_key_{{ name }}(
+        {{ param_name }} : {% if param_default.is_a?(NumberLiteral) %}Int32{% else %}String{% end %} = {{ param_default }}
       ) : JWK
         generate_key({
-          "kty"                    => JSON::Any.new({{kty}}),
-          {{param_name.stringify}} => JSON::Any.new({% if param_default.is_a?(NumberLiteral) %}{{param_name}}.to_i64{% else %}{{param_name}}{% end %}),
+          "kty"                    => JSON::Any.new({{ kty }}),
+          {{ param_name.stringify }} => JSON::Any.new({% if param_default.is_a?(NumberLiteral) %}{{ param_name }}.to_i64{% else %}{{ param_name }}{% end %}),
         })
       end
     end

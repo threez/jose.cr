@@ -69,119 +69,119 @@ module JOSE
       {% cores = non_nil.map(&.stringify) %}
 
       {% if cores.includes?("String") && cores.includes?("Array(String)") %}
-        def {{name}} : String | Array(String) | Nil
-          raw = @fields[{{key}}]?
+        def {{ name }} : String | Array(String) | Nil
+          raw = @fields[{{ key }}]?
           return nil if raw.nil?
           raw.as_a? ? raw.as_a.map(&.as_s) : raw.as_s
         end
 
-        def {{name}}=(value : String | Array(String) | Nil)
+        def {{ name }}=(value : String | Array(String) | Nil)
           if value.nil?
-            @fields.delete({{key}})
+            @fields.delete({{ key }})
           elsif value.is_a?(Array)
-            @fields[{{key}}] = JSON::Any.new(value.map { |s| JSON::Any.new(s) })
+            @fields[{{ key }}] = JSON::Any.new(value.map { |s| JSON::Any.new(s) })
           else
-            @fields[{{key}}] = JSON::Any.new(value.as(String))
+            @fields[{{ key }}] = JSON::Any.new(value.as(String))
           end
         end
 
       {% elsif cores[0] == "Time" %}
-        def {{name}} : {{raw_type}}
-          raw = @fields[{{key}}]?
+        def {{ name }} : {{ raw_type }}
+          raw = @fields[{{ key }}]?
           {% if nullable %}return nil if raw.nil?{% end %}
           Time.unix(raw.not_nil!.as_i64)
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!.to_unix)
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!.to_unix)
         end
 
       {% elsif cores[0] == "Int64" %}
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?.try(&.as_i64){% else %}@fields[{{key}}].as_i64{% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?.try(&.as_i64){% else %}@fields[{{ key }}].as_i64{% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!)
         end
 
       {% elsif cores[0] == "Bool" %}
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?.try(&.as_bool){% else %}@fields[{{key}}].as_bool{% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?.try(&.as_bool){% else %}@fields[{{ key }}].as_bool{% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!)
         end
 
       {% elsif cores[0] == "Array(String)" %}
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?.try(&.as_a.map(&.as_s)){% else %}@fields[{{key}}].as_a.map(&.as_s){% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?.try(&.as_a.map(&.as_s)){% else %}@fields[{{ key }}].as_a.map(&.as_s){% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!.map { |s| JSON::Any.new(s) })
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!.map { |s| JSON::Any.new(s) })
         end
 
       {% elsif cores[0] == "Array(JSON::Any)" %}
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?.try(&.as_a){% else %}@fields[{{key}}].as_a{% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?.try(&.as_a){% else %}@fields[{{ key }}].as_a{% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!)
         end
 
       {% elsif cores[0] == "JSON::Any" %}
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?{% else %}@fields[{{key}}]{% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?{% else %}@fields[{{ key }}]{% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = value.not_nil!
+          @fields[{{ key }}] = value.not_nil!
         end
 
       {% else %}
         # String (default fallthrough)
-        def {{name}} : {{raw_type}}
-          {% if nullable %}@fields[{{key}}]?.try(&.as_s){% else %}@fields[{{key}}].as_s{% end %}
+        def {{ name }} : {{ raw_type }}
+          {% if nullable %}@fields[{{ key }}]?.try(&.as_s){% else %}@fields[{{ key }}].as_s{% end %}
         end
 
-        def {{name}}=(value : {{raw_type}})
+        def {{ name }}=(value : {{ raw_type }})
           {% if nullable %}
-            if value.nil?; @fields.delete({{key}}); return; end
+            if value.nil?; @fields.delete({{ key }}); return; end
           {% end %}
-          @fields[{{key}}] = JSON::Any.new(value.not_nil!)
+          @fields[{{ key }}] = JSON::Any.new(value.not_nil!)
         end
       {% end %}
 
       {% if long_name %}
-        # Long-form alias for `{{name}}`.
-        def {{long_name.id}} : {{raw_type}}
-          {{name}}
+        # Long-form alias for `{{ name }}`.
+        def {{ long_name.id }} : {{ raw_type }}
+          {{ name }}
         end
 
-        # Long-form alias for `{{name}}=`.
-        def {{long_name.id}}=(v : {{raw_type}})
-          self.{{name}} = v
+        # Long-form alias for `{{ name }}=`.
+        def {{ long_name.id }}=(v : {{ raw_type }})
+          self.{{ name }} = v
         end
       {% end %}
     end
@@ -195,6 +195,7 @@ module JOSE
     claim sub : String?, long_name: subject
 
     # Audience (RFC 7519 §4.1.3). Long-form alias: `audience`.
+    # ameba:disable Style/VerboseNilType
     claim aud : String | Array(String) | Nil, long_name: audience
 
     # Expiration time as UTC `Time` (RFC 7519 §4.1.4). Long-form alias: `expires_at`.
@@ -214,14 +215,14 @@ module JOSE
     # Returns `true` if `exp` is set and is in the past relative to *now*.
     # Does NOT verify the signature — call `verify_strict` for that.
     def expired?(now : Time = Time.utc) : Bool
-      exp_time = self.exp
+      exp_time = exp
       return false if exp_time.nil?
       now >= exp_time
     end
 
     # Returns `true` if `nbf` is set and has not yet been reached relative to *now*.
     def not_yet_valid?(now : Time = Time.utc) : Bool
-      nbf_time = self.nbf
+      nbf_time = nbf
       return false if nbf_time.nil?
       now < nbf_time
     end
@@ -312,7 +313,7 @@ module JOSE
     def self.verify_strict(jwk : JWK, allowed_algs : Array(String),
                            signed : String | SignedBinary, *,
                            iss : String? = nil,
-                           aud : String | Array(String) | Nil = nil,
+                           aud : (String | Array(String))? = nil,
                            typ : String? = nil,
                            validate_claims : Bool = true) : {Bool, JWT, Hash(String, JSON::Any)}
       valid, jwt, header = verify(jwk, signed)
@@ -385,7 +386,7 @@ module JOSE
     # ── Private helpers ──────────────────────────────────────────────────────
 
     # Returns `true` when *jwt_aud* contains at least one value from *expected*.
-    private def self.aud_match?(jwt_aud : String | Array(String) | Nil,
+    private def self.aud_match?(jwt_aud : (String | Array(String))?,
                                 expected : String | Array(String)) : Bool
       expected_arr = expected.is_a?(Array) ? expected : [expected]
       token_arr = jwt_aud.is_a?(String) ? [jwt_aud.as(String)] : (jwt_aud || [] of String)
