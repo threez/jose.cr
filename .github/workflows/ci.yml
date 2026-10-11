@@ -1,21 +1,53 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
-  verify-linux:
+  lint:
+    name: Lint & compile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.20.2
+      - name: Cache shards
+        uses: actions/cache@v4
+        with:
+          path: lib
+          key: ${{ runner.os }}-shards-${{ hashFiles('shard.lock') }}
+          restore-keys: ${{ runner.os }}-shards-
       - run: shards install
-      - run: make lint spec
-      - run: crystal tool format --check src/ spec/
+      - name: Build ameba
+        run: cd lib/ameba && shards build ameba
+      - name: Format check
+        run: crystal tool format --check
+      - name: Ameba lint
+        run: lib/ameba/bin/ameba
+      - name: Compile check
+        run: crystal build src/jose.cr -o /tmp/jose_check --no-codegen
 
-  verify-macos:
-    runs-on: macos-latest
+  test:
+    name: Test (${{ matrix.os }})
+    needs: lint
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: brew install crystal
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.20.2
+      - name: Cache shards
+        uses: actions/cache@v4
+        with:
+          path: lib
+          key: ${{ runner.os }}-shards-${{ hashFiles('shard.lock') }}
+          restore-keys: ${{ runner.os }}-shards-
       - run: shards install
-      - run: make spec
+      - name: Run specs
+        run: crystal spec --order=random
